@@ -1276,6 +1276,11 @@ class BackendControl:
                 type="password",
                 key="openai_key"
             )
+            api_config['API_BASE_URL'] = st.text_input(
+                "API Base URL",
+                value=api_config.get('API_BASE_URL', 'https://api.deepseek.com/v1'),
+                key="api_base_url"
+            )
             
             api_config['USER_API_ID'] = st.text_input(
                 "Telegram API ID", 

@@ -29,9 +29,22 @@ class DeepIntentAnalyzer:
     """
     
     def __init__(self, api_key: str, model: str = "deepseek-chat"):
+        # Resolve base URL from env or config default
+        import os
+        try:
+            from main_assistant import config_manager  # reuse global config manager if available
+            api_cfg = config_manager.load_config('api_config')
+        except Exception:
+            api_cfg = {}
+        base_url = (
+            os.getenv('OPENAI_BASE_URL')
+            or os.getenv('DEEPSEEK_API_BASE_URL')
+            or api_cfg.get('API_BASE_URL')
+            or 'https://api.deepseek.com/v1'
+        )
         self.client = OpenAI(
             api_key=api_key,
-            base_url="https://api.deepseek.com"
+            base_url=base_url
         )
         self.model = model
         

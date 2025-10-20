@@ -1115,6 +1115,17 @@ class AdvancedResponseCoordinator:
         self.intelligent_coordinator = IntelligentResponseCoordinator()
         self.natural_generator = NaturalLanguageGenerator()
         self.sentence_streamer = SentenceStreamer()
+
+        # Configure language preference for generators/streamers based on system config or env
+        try:
+            sys_cfg = config_manager.load_config('system_config')
+            language_pref = os.getenv('ASSISTANT_LANGUAGE') or sys_cfg.get('LANGUAGE', 'English')
+        except Exception:
+            language_pref = os.getenv('ASSISTANT_LANGUAGE') or 'English'
+        if hasattr(self.natural_generator, 'set_language'):
+            self.natural_generator.set_language(language_pref)
+        if hasattr(self.sentence_streamer, 'set_language'):
+            self.sentence_streamer.set_language(language_pref)
         
         # 用户状态跟踪
         self.user_states = defaultdict(dict)
@@ -1338,7 +1349,7 @@ class ConfigManager:
             },
             'api_config': {
                 "OPENAI_API_KEY": "", "USER_API_ID": "", "USER_API_HASH": "", 
-                "USER_PHONE": "", "AI_MODEL": "deepseek-chat"
+                "USER_PHONE": "", "AI_MODEL": "deepseek-chat", "API_BASE_URL": "https://api.deepseek.com/v1"
             },
             'reply_settings': {
                 "timing": {
@@ -1515,7 +1526,18 @@ class ChatHistoryManager:
 # ==================== AI 回复生成器（修复版） ====================
 class AIReplyGenerator:
     def __init__(self, api_key: str, model: str = "deepseek-chat"):
-        self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        # Resolve base URL from env, config, or fallback default
+        try:
+            api_cfg = config_manager.load_config('api_config')
+        except Exception:
+            api_cfg = {}
+        base_url = (
+            os.getenv('OPENAI_BASE_URL')
+            or os.getenv('DEEPSEEK_API_BASE_URL')
+            or api_cfg.get('API_BASE_URL')
+            or 'https://api.deepseek.com/v1'
+        )
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         
         # 旧的情感分析器（保留作为备用）
@@ -1854,8 +1876,10 @@ Location: {basic_info['current_city']}
         phrases = quote_phrases.get(quote_type, [])
         if phrases:
             quote_phrase = random.choice(phrases)
-            if not reply.lower().startswith(quote_phrase.lower()):
-                reply = quote_phrase + reply.lower()
+            # Preserve original casing; only normalize for comparison
+            normalized_reply = reply.lstrip()
+            if not normalized_reply.lower().startswith(quote_phrase.strip().lower()):
+                reply = quote_phrase + reply
         
         return reply
 
@@ -2330,8 +2354,24 @@ class MainAssistant:
                 await self.client.run_until_disconnected()
             else:
                 print("🤖 助手已启动 (无Telegram连接)")
-                while True:
-                    await asyncio.sleep(1)
+                # Allow idle exit for local/dev runs via env or config value
+                idle_seconds = None
+                try:
+                    idle_seconds = int(os.getenv('ASSISTANT_IDLE_SECONDS', '0'))
+                except Exception:
+                    idle_seconds = 0
+                if not idle_seconds:
+                    sys_cfg = self.config_manager.load_config('system_config')
+                    idle_seconds = int(sys_cfg.get('IDLE_EXIT_SECONDS', 0)) if isinstance(sys_cfg, dict) else 0
+
+                if idle_seconds and idle_seconds > 0:
+                    end_time = time.time() + idle_seconds
+                    while time.time() < end_time:
+                        await asyncio.sleep(1)
+                    print(f"🛑 Idle exit after {idle_seconds}s (no Telegram connection)")
+                else:
+                    while True:
+                        await asyncio.sleep(1)
                     
         except Exception as e:
             print(f"❌ 启动助手失败: {e}")

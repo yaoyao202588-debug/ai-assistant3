@@ -221,6 +221,15 @@ class NaturalLanguageGenerator:
             'caring': ['呀', '呢', '喔', '❤️', '🤗'],
             'neutral': ['。', '～', '']
         }
+        self._language = 'Chinese'  # default based on current content
+
+    def set_language(self, language: str):
+        """设置语言偏好，支持 English/Chinese 简单分流"""
+        lang = (language or '').lower()
+        if 'en' in lang:
+            self._language = 'English'
+        else:
+            self._language = 'Chinese'
         
     def make_conversational(self, text: str) -> str:
         """让文本更口语化"""
@@ -242,9 +251,12 @@ class NaturalLanguageGenerator:
     
     def _split_sentences(self, text: str) -> List[str]:
         """智能分割句子"""
-        # 保护一些特殊标点不被分割
-        text = re.sub(r'([！？])', r'\1。', text)
-        sentences = re.split(r'([。！？…])', text)
+        if self._language == 'English':
+            sentences = re.split(r'([.!?])', text)
+        else:
+            # 保护一些特殊标点不被分割（中文）
+            text = re.sub(r'([！？])', r'\1。', text)
+            sentences = re.split(r'([。！？…])', text)
         
         # 重新组合标点
         result = []
@@ -276,9 +288,13 @@ class NaturalLanguageGenerator:
                 sentence = filler + '，' + sentence
         
         # 处理句尾，使其更自然
-        if not any(sentence.endswith(end) for end in self.sentence_breakers):
-            ending = random.choice(['。', '～', '...', '！'])
-            sentence += ending
+        if self._language == 'English':
+            if not sentence.endswith(('.', '!', '?')):
+                sentence += random.choice(['.', '...', '!'])
+        else:
+            if not any(sentence.endswith(end) for end in self.sentence_breakers):
+                ending = random.choice(['。', '～', '...', '！'])
+                sentence += ending
             
         # 随机添加表情符号（概率较低）
         if random.random() < 0.15:
@@ -398,13 +414,20 @@ class SentenceStreamer:
             
         return sent_sentences
     
+    def set_language(self, language: str):
+        lang = (language or '').lower()
+        self._language = 'English' if 'en' in lang else 'Chinese'
+
     def _split_into_streamable_sentences(self, text: str) -> List[str]:
         """将文本分割成适合流式发送的句子"""
         if not text:
             return []
             
         # 基础分割
-        sentences = re.split(r'([。！？…])', text)
+        if getattr(self, '_language', 'Chinese') == 'English':
+            sentences = re.split(r'([.!?])', text)
+        else:
+            sentences = re.split(r'([。！？…])', text)
         result = []
         i = 0
         
@@ -413,7 +436,7 @@ class SentenceStreamer:
                 current_sentence = sentences[i].strip()
                 
                 # 合并标点
-                if i + 1 < len(sentences) and sentences[i+1] in ['。', '！', '？', '…']:
+                if i + 1 < len(sentences) and sentences[i+1] in ['。', '！', '？', '…', '.', '!', '?']:
                     current_sentence += sentences[i+1]
                     i += 1
                 
@@ -431,7 +454,7 @@ class SentenceStreamer:
     def _split_long_sentence(self, sentence: str) -> List[str]:
         """分割长句子"""
         # 按逗号、分号等分割
-        parts = re.split(r'([，,；;])', sentence)
+        parts = re.split(r'([，,；;,:])', sentence)
         if len(parts) == 1:
             # 没有明显分割点，按长度分割
             if len(sentence) > 30:  # 修复：从35降低到30
